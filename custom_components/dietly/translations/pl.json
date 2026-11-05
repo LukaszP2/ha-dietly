@@ -1,0 +1,56 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Połącz z Dietly",
+        "description": "Zaloguj się do konta Dietly. Aktywne zamówienia i diety zostaną wykryte automatycznie.",
+        "data": {
+          "email": "E-mail",
+          "password": "Hasło"
+        }
+      },
+      "reconfigure": {
+        "title": "Zmień hasło Dietly",
+        "description": "Wpisz nowe hasło do tego samego konta Dietly. Aby zmienić konto, usuń integrację i dodaj ją ponownie.",
+        "data": {
+          "password": "Hasło"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Zaloguj się ponownie do Dietly",
+        "description": "Sesja Dietly wygasła lub została odrzucona. Podaj hasło, aby wznowić aktualizowanie danych.",
+        "data": {
+          "password": "Hasło"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Dietly odrzuciło dane logowania.",
+      "cannot_connect": "Nie udało się połączyć z Dietly. Sprawdź połączenie i log Home Assistanta.",
+      "wrong_account": "Te dane logowania należą do innego konta Dietly.",
+      "account_already_configured": "To konto Dietly jest już skonfigurowane w innym wpisie.",
+      "unknown": "Nieoczekiwany błąd. Sprawdź log Home Assistanta."
+    },
+    "abort": {
+      "already_configured": "To konto Dietly jest już skonfigurowane.",
+      "reconfigure_successful": "Hasło do Dietly zostało zaktualizowane.",
+      "reauth_successful": "Ponownie zalogowano do Dietly."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "active_diets": {"name": "Aktywne diety"},
+      "order_status": {"name": "Zamówienie — Status"},
+      "calorie_target": {"name": "Dieta — Kalorie docelowe"},
+      "order_start": {"name": "Dieta — Data rozpoczęcia"},
+      "order_end": {"name": "Dieta — Data zakończenia"},
+      "days_remaining": {"name": "Dieta — Dni do końca"},
+      "next_delivery": {"name": "Dostawa — Najbliższa data"},
+      "delivery_address": {"name": "Dostawa — Adres"},
+      "calories": {"name": "Menu — Kalorie łącznie"},
+      "protein": {"name": "Menu — Białko"},
+      "fat": {"name": "Menu — Tłuszcz"},
+      "carbohydrates": {"name": "Menu — Węglowodany"}
+    }
+  }
+}

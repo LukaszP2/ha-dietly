@@ -1,0 +1,47 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Połącz z Dietly",
+        "description": "Zaloguj się do konta Dietly. Integracja pobierze wszystkie aktywne zamówienia i diety przypisane do tego konta.",
+        "data": {
+          "email": "E-mail",
+          "password": "Hasło"
+        }
+      }
+    },
+    "reconfigure": {
+      "title": "Zmień dane logowania Dietly",
+      "description": "Wpisz aktualny e-mail i hasło do konta Dietly.",
+      "data": {
+        "email": "E-mail",
+        "password": "Hasło"
+      }
+    },
+    "error": {
+      "invalid_auth": "Dietly odrzuciło dane logowania.",
+      "cannot_connect": "Nie udało się połączyć z Dietly. Sprawdź połączenie i log Home Assistanta.",
+      "unknown": "Nieoczekiwany błąd. Sprawdź log Home Assistanta."
+    },
+    "abort": {
+      "already_configured": "To konto Dietly jest już skonfigurowane.",
+      "reconfigure_successful": "Dane logowania Dietly zostały zaktualizowane."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "order_status": {"name": "Status zamówienia"},
+      "calorie_target": {"name": "Cel kaloryczny diety"},
+      "order_start": {"name": "Początek diety"},
+      "order_end": {"name": "Koniec diety"},
+      "days_remaining": {"name": "Pozostałe dni diety"},
+      "next_delivery": {"name": "Najbliższa dostawa"},
+      "delivery_address": {"name": "Adres najbliższej dostawy"},
+      "calories": {"name": "Menu — kalorie łącznie"},
+      "protein": {"name": "Menu — białko łącznie"},
+      "fat": {"name": "Menu — tłuszcz łącznie"},
+      "carbohydrates": {"name": "Menu — węglowodany łącznie"},
+      "active_diets": {"name": "Aktywne diety"}
+    }
+  }
+}

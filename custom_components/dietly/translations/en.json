@@ -1,0 +1,56 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to Dietly",
+        "description": "Sign in to your Dietly account. Active orders and diets will be discovered automatically.",
+        "data": {
+          "email": "Email",
+          "password": "Password"
+        }
+      },
+      "reconfigure": {
+        "title": "Update Dietly password",
+        "description": "Enter a new password for the same Dietly account. To switch accounts, remove and add the integration again.",
+        "data": {
+          "password": "Password"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Sign in to Dietly again",
+        "description": "The Dietly session expired or was rejected. Enter your password to resume updates.",
+        "data": {
+          "password": "Password"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Dietly rejected the credentials.",
+      "cannot_connect": "Could not connect to Dietly. Check the connection and Home Assistant log.",
+      "wrong_account": "The credentials belong to a different Dietly account.",
+      "account_already_configured": "This Dietly account is already configured in another entry.",
+      "unknown": "Unexpected error. Check the Home Assistant log."
+    },
+    "abort": {
+      "already_configured": "This Dietly account is already configured.",
+      "reconfigure_successful": "The Dietly password was updated.",
+      "reauth_successful": "Signed in to Dietly again."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "active_diets": {"name": "Active diets"},
+      "order_status": {"name": "Order — Status"},
+      "calorie_target": {"name": "Diet — Calorie target"},
+      "order_start": {"name": "Diet — Start date"},
+      "order_end": {"name": "Diet — End date"},
+      "days_remaining": {"name": "Diet — Days remaining"},
+      "next_delivery": {"name": "Delivery — Next date"},
+      "delivery_address": {"name": "Delivery — Address"},
+      "calories": {"name": "Menu — Total calories"},
+      "protein": {"name": "Menu — Protein"},
+      "fat": {"name": "Menu — Fat"},
+      "carbohydrates": {"name": "Menu — Carbohydrates"}
+    }
+  }
+}

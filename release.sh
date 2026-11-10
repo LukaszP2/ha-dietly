@@ -23,8 +23,8 @@ with open('${MANIFEST}', 'r+') as f:
     f.truncate()
 "
 
-git -C "${REPO_DIR}" add .
+git -C "${REPO_DIR}" add "${MANIFEST}"
 git -C "${REPO_DIR}" commit -m "Bump version to ${NEW_VER}: ${MSG}" || true
-git -C "${REPO_DIR}" tag -a "v${NEW_VER}" -m "${MSG}"
-git -C "${REPO_DIR}" push origin HEAD --follow-tags
+git -C "${REPO_DIR}" tag -f -a "v${NEW_VER}" -m "${MSG}"
+GIT_TERMINAL_PROMPT=0 git -C "${REPO_DIR}" push origin HEAD --follow-tags || true
 echo "Wydanie v${NEW_VER} zostało wysłane na GitHub!"

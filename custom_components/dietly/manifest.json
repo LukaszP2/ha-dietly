@@ -6,8 +6,6 @@
   ],
   "config_flow": true,
   "integration_type": "service",
-  "diagnostics": true,
-  "homeassistant": "2026.9.0",
   "documentation": "https://github.com/LukaszP2/ha-dietly",
   "iot_class": "cloud_polling",
   "version": "0.5.0",

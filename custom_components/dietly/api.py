@@ -13,6 +13,7 @@ import aiohttp
 from yarl import URL
 
 from .const import API_BASE, LOGIN_URL
+from .models import DietlyMeal, DietlyNutrition, DietlyOrder
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -43,12 +44,14 @@ class DietlyApi:
         email: str,
         password: str,
         company_id: str = "",
+        show_upcoming_menu: bool = False,
     ) -> None:
         self._session = session
         self._email = email
         self._password = password
         # Compatibility fallback for older config entries.
         self._legacy_company_id = company_id
+        self._show_upcoming_menu = show_upcoming_menu
         self._headers = {
             "Accept": "application/json",
             "x-launcher-type": "BROWSER_DIETLY",
@@ -145,6 +148,7 @@ class DietlyApi:
         *,
         params: dict[str, Any] | None = None,
         company_id: str | None = None,
+        _retried: bool = False,
     ) -> Any:
         if not self._logged_in:
             await self.async_login()
@@ -157,6 +161,15 @@ class DietlyApi:
                 _LOGGER.debug("Dietly API %s returned HTTP %s", path, response.status)
                 if response.status in (401, 403):
                     self._logged_in = False
+                    if not _retried:
+                        _LOGGER.debug(
+                            "Dietly session expired for %s, attempting re-login", path
+                        )
+                        await self.async_login()
+                        self._logged_in = True
+                        return await self._get(
+                            path, params=params, company_id=company_id, _retried=True
+                        )
                     raise DietlyAuthError(
                         f"Dietly rejected {path} (HTTP {response.status})"
                     )
@@ -181,12 +194,12 @@ class DietlyApi:
             headers["company-id"] = scoped_company_id
         return headers
 
-    async def async_get_active_diets(self, today: date) -> dict[str, dict[str, Any]]:
+    async def async_get_active_diets(self, today: date) -> dict[str, DietlyOrder]:
         """Return the current delivery and order details for every active diet."""
         today_iso = today.isoformat()
         orders: list[dict[str, Any]] = []
         page = 0
-        while True:
+        while page < 20:
             orders_data = await self._get(
                 "/profile/profile-order/all", params={"page": page}
             )
@@ -226,7 +239,7 @@ class DietlyApi:
             for order in orders
             if str(order.get("status", "ACTIVE")).upper() == "ACTIVE"
         ]
-        diets: dict[str, dict[str, Any]] = {}
+        diets: dict[str, DietlyOrder] = {}
         for active in active_orders:
             nested_order = active.get("orderId")
             if not isinstance(nested_order, dict):
@@ -280,14 +293,25 @@ class DietlyApi:
                 for item in deliveries
                 if isinstance(item, dict) and str(item.get("date", "")) >= today_iso
             ]
-            delivery = next(
+            next_candidate = (
+                min(candidates, key=lambda item: str(item.get("date", "")))
+                if candidates
+                else None
+            )
+            next_delivery_date = (
+                next_candidate.get("date") if next_candidate else None
+            )
+            today_delivery = next(
                 (item for item in candidates if str(item.get("date", "")) == today_iso),
                 None,
             )
-            if delivery is None and candidates:
-                delivery = min(candidates, key=lambda item: str(item.get("date", "")))
+            delivery = (
+                today_delivery
+                if today_delivery is not None
+                else (next_candidate if self._show_upcoming_menu else None)
+            )
 
-            meals: list[dict[str, Any]] = []
+            meals: list[DietlyMeal] = []
             delivery_date = None
             if delivery:
                 delivery_date = delivery.get("date")
@@ -315,7 +339,8 @@ class DietlyApi:
                             if isinstance(item, dict)
                         ]
 
-            diet = order.get("diet") if isinstance(order.get("diet"), dict) else {}
+            diet_raw = order.get("diet")
+            diet: dict[str, Any] = diet_raw if isinstance(diet_raw, dict) else {}
             date_from = date_from or order.get("dateFrom")
             date_to = date_to or order.get("dateTo")
             # Dietly may leave old orders marked ACTIVE in profile-order/all.
@@ -329,34 +354,36 @@ class DietlyApi:
                 or order.get("address")
             )
             key = str(order_id)
-            diets[key] = {
-                "order_id": key,
-                "company_id": company_id,
-                "company_name": (
+            diets[key] = DietlyOrder(
+                order_id=key,
+                company_id=company_id,
+                company_name=(
                     active.get("companyFullName")
                     or active.get("companyName")
                     or nested_order.get("companyFullName")
                     or nested_order.get("companyName")
                 ),
-                "diet_name": (
+                diet_name=(
                     active.get("dietName")
                     or nested_order.get("dietName")
                     or diet.get("dietName")
                 ),
-                "status": active.get("status") or nested_order.get("status", "ACTIVE"),
-                "calorie_target": _number(
+                status=active.get("status") or nested_order.get("status", "ACTIVE"),
+                calorie_target=_number(
                     active.get(
                         "dietCalories",
                         nested_order.get("dietCalories", diet.get("calories")),
                     )
                 ),
-                "date_from": date_from,
-                "date_to": date_to,
-                "delivery_date": delivery_date,
-                "delivery_address": delivery_address,
-                "meals": meals,
-                "nutrition": _nutrition_totals(meals),
-            }
+                date_from=date_from,
+                date_to=date_to,
+                next_delivery_date=next_delivery_date,
+                delivery_date=delivery_date,
+                is_today=delivery is not None and delivery.get("date") == today_iso,
+                delivery_address=delivery_address,
+                meals=meals,
+                nutrition=_nutrition_totals(meals),
+            )
         return diets
 
 
@@ -381,19 +408,29 @@ def _as_list(data: Any, *keys: str) -> list[Any]:
 
 
 def _company_id_for_order(order: dict[str, Any]) -> str | None:
-    """Read the catering slug attached to a profile-order record."""
-    value = order.get("companyName")
-    if isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9_-]+", value.strip()):
-        return value.strip()
+    """Read the catering ID or slug attached to a profile-order record."""
+    for key in ("companyId", "cateringId", "companySlug", "slug", "companyName"):
+        value = order.get(key)
+        if isinstance(value, (int, str)):
+            str_val = str(value).strip()
+            if str_val and re.fullmatch(r"[A-Za-z0-9_-]+", str_val):
+                return str_val
     companies = order.get("companies")
     if isinstance(companies, list):
         for company in companies:
             if isinstance(company, dict):
-                name = company.get("companyName") or company.get("slug")
-                if isinstance(name, str) and re.fullmatch(
-                    r"[A-Za-z0-9_-]+", name.strip()
+                for key in (
+                    "companyId",
+                    "cateringId",
+                    "companySlug",
+                    "slug",
+                    "companyName",
                 ):
-                    return name.strip()
+                    value = company.get(key)
+                    if isinstance(value, (int, str)):
+                        str_val = str(value).strip()
+                        if str_val and re.fullmatch(r"[A-Za-z0-9_-]+", str_val):
+                            return str_val
     return None
 
 
@@ -443,7 +480,7 @@ def _normalize_address(value: Any) -> str | None:
     return ", ".join(dict.fromkeys(parts)) or None
 
 
-def _normalize_meal(meal: dict[str, Any]) -> dict[str, Any]:
+def _normalize_meal(meal: dict[str, Any]) -> DietlyMeal:
     menu_meal = meal.get("menuMeal")
     if not isinstance(menu_meal, dict):
         menu_meal = {}
@@ -452,9 +489,11 @@ def _normalize_meal(meal: dict[str, Any]) -> dict[str, Any]:
         nutrition = {}
     meal_name = meal.get("menuMealName") or meal.get("dishName") or meal.get("name")
     slot = meal.get("mealName") or meal.get("name") or "Posiłek"
+    slot_str = str(slot).strip() if slot else "Posiłek"
+    name_str = str(meal_name).strip() if meal_name else None
     return {
-        "slot": slot if isinstance(slot, str) else "Posiłek",
-        "name": meal_name if isinstance(meal_name, str) else None,
+        "slot": slot_str[:255],
+        "name": name_str[:255] if name_str else None,
         "calories": _number(
             nutrition.get("calories", nutrition.get("energy", nutrition.get("kcal")))
         ),
@@ -490,13 +529,21 @@ def _as_text_list(value: Any) -> list[str]:
     return result
 
 
-def _nutrition_totals(meals: list[dict[str, Any]]) -> dict[str, float | None]:
-    result: dict[str, float | None] = {}
-    for key in ("calories", "protein", "fat", "carbohydrates"):
-        values = [meal.get(key) for meal in meals]
-        result[key] = (
-            sum(value for value in values if value is not None)
-            if values and all(value is not None for value in values)
-            else None
-        )
-    return result
+def _nutrition_totals(meals: list[DietlyMeal]) -> DietlyNutrition:
+    def _total(key: str) -> float | None:
+        values = [
+            float(val)
+            for meal in meals
+            if isinstance((val := meal.get(key)), (int, float))
+        ]
+        if not values:
+            return None
+        total = sum(values)
+        return round(total, 1) if key != "calories" else round(total)
+
+    return DietlyNutrition(
+        calories=_total("calories"),
+        protein=_total("protein"),
+        fat=_total("fat"),
+        carbohydrates=_total("carbohydrates"),
+    )

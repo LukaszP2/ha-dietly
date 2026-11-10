@@ -9,7 +9,7 @@ import aiohttp
 import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.const import CONF_PASSWORD
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.data_entry_flow import FlowResult
 from homeassistant.helpers.aiohttp_client import async_create_clientsession
 
@@ -18,6 +18,10 @@ from .const import (
     CONF_ACCOUNT_ID,
     CONF_EMAIL,
     CONF_ENTITY_NAMESPACE,
+    CONF_MEAL_COUNT,
+    CONF_SHOW_UPCOMING_MENU,
+    DEFAULT_MEAL_COUNT,
+    DEFAULT_SHOW_UPCOMING_MENU,
     DOMAIN,
     REQUEST_TIMEOUT_SECONDS,
 )
@@ -40,10 +44,10 @@ async def _validate(hass: HomeAssistant, values: dict[str, Any]) -> str:
             raise DietlyError("Dietly profile did not include a stable account ID")
         return api.account_id
     finally:
-        session.detach()
+        await session.close()
 
 
-class DietlyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
+class DietlyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type: ignore[call-arg]
     """Set up a Dietly customer account."""
 
     VERSION = 1
@@ -57,13 +61,13 @@ class DietlyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 account_id = await _validate(self.hass, user_input)
             except DietlyAuthError as err:
                 _LOGGER.warning("Dietly setup failed: %s", err)
-                errors["invalid_auth"] = "invalid_auth"
+                errors["base"] = "invalid_auth"
             except (DietlyError, aiohttp.ClientError, OSError, TimeoutError):
                 _LOGGER.exception("Dietly setup failed while connecting to the service")
-                errors["cannot_connect"] = "cannot_connect"
+                errors["base"] = "cannot_connect"
             except Exception:
                 _LOGGER.exception("Unexpected error while connecting to Dietly")
-                errors["unknown"] = "unknown"
+                errors["base"] = "unknown"
             else:
                 if any(
                     existing_entry.data.get(CONF_EMAIL, "").casefold()
@@ -110,13 +114,13 @@ class DietlyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 )
             except DietlyAuthError as err:
                 _LOGGER.warning("Dietly reconfiguration failed: %s", err)
-                errors["invalid_auth"] = "invalid_auth"
+                errors["base"] = "invalid_auth"
             except (DietlyError, aiohttp.ClientError, OSError, TimeoutError):
                 _LOGGER.exception("Dietly reconfiguration failed while connecting")
-                errors["cannot_connect"] = "cannot_connect"
+                errors["base"] = "cannot_connect"
             except Exception:
                 _LOGGER.exception("Unexpected error while reconfiguring Dietly")
-                errors["unknown"] = "unknown"
+                errors["base"] = "unknown"
             else:
                 existing = next(
                     (
@@ -128,12 +132,12 @@ class DietlyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     None,
                 )
                 if existing is not None:
-                    errors["account_already_configured"] = "account_already_configured"
+                    errors["base"] = "account_already_configured"
                 elif (
                     entry.data.get(CONF_ACCOUNT_ID) is not None
                     and entry.data[CONF_ACCOUNT_ID] != account_id
                 ):
-                    errors["wrong_account"] = "wrong_account"
+                    errors["base"] = "wrong_account"
                 else:
                     return self.async_update_reload_and_abort(
                         entry,
@@ -174,13 +178,13 @@ class DietlyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 account_id = await _validate(self.hass, values)
             except DietlyAuthError as err:
                 _LOGGER.warning("Dietly reauthentication failed: %s", err)
-                errors["invalid_auth"] = "invalid_auth"
+                errors["base"] = "invalid_auth"
             except (DietlyError, aiohttp.ClientError, OSError, TimeoutError):
                 _LOGGER.exception("Dietly reauthentication failed while connecting")
-                errors["cannot_connect"] = "cannot_connect"
+                errors["base"] = "cannot_connect"
             except Exception:
                 _LOGGER.exception("Unexpected error while reauthenticating Dietly")
-                errors["unknown"] = "unknown"
+                errors["base"] = "unknown"
             else:
                 existing = next(
                     (
@@ -192,12 +196,12 @@ class DietlyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     None,
                 )
                 if existing is not None:
-                    errors["account_already_configured"] = "account_already_configured"
+                    errors["base"] = "account_already_configured"
                 elif (
                     entry.data.get(CONF_ACCOUNT_ID) is not None
                     and entry.data[CONF_ACCOUNT_ID] != account_id
                 ):
-                    errors["wrong_account"] = "wrong_account"
+                    errors["base"] = "wrong_account"
                 else:
                     return self.async_update_reload_and_abort(
                         entry,
@@ -210,6 +214,7 @@ class DietlyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                                 entity_namespace(entry.unique_id, entry.entry_id),
                             ),
                         },
+                        reason="reauth_successful",
                     )
 
         return self.async_show_form(
@@ -217,3 +222,43 @@ class DietlyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             data_schema=vol.Schema({vol.Required(CONF_PASSWORD): str}),
             errors=errors,
         )
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(
+        config_entry: config_entries.ConfigEntry,
+    ) -> config_entries.OptionsFlow:
+        """Get the options flow for this handler."""
+        return DietlyOptionsFlowHandler(config_entry)
+
+
+class DietlyOptionsFlowHandler(config_entries.OptionsFlow):
+    """Handle Dietly options."""
+
+    def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
+        """Initialize options flow."""
+        self.config_entry = config_entry
+
+    async def async_step_init(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Manage the options."""
+        if user_input is not None:
+            return self.async_create_entry(title="", data=user_input)
+
+        options = self.config_entry.options
+        schema = vol.Schema(
+            {
+                vol.Optional(
+                    CONF_SHOW_UPCOMING_MENU,
+                    default=options.get(
+                        CONF_SHOW_UPCOMING_MENU, DEFAULT_SHOW_UPCOMING_MENU
+                    ),
+                ): bool,
+                vol.Optional(
+                    CONF_MEAL_COUNT,
+                    default=options.get(CONF_MEAL_COUNT, DEFAULT_MEAL_COUNT),
+                ): vol.All(vol.Coerce(int), vol.Range(min=1, max=10)),
+            }
+        )
+        return self.async_show_form(step_id="init", data_schema=schema)

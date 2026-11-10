@@ -1,0 +1,133 @@
+blueprint:
+  name: "Dietly — Przypomnienie o końcu diety i przedłużeniu zamówienia"
+  description: >-
+    Codziennie o wybranej godzinie sprawdza datę zakończenia aktywnej diety w Dietly.
+    Gdy do końca zamówienia pozostanie określona liczba dni (np. 3 dni i/lub 1 dzień przed),
+    wysyła powiadomienie na telefon, przypominając o konieczności złożenia nowego zamówienia
+    lub przedłużenia obecnego w portalu cateringowym.
+  domain: automation
+  homeassistant:
+    min_version: "2024.1.0"
+  input:
+    entities_section:
+      name: Sensory diety Dietly
+      icon: mdi:calendar-clock
+      description: Wybierz sensor daty zakończenia diety.
+      input:
+        order_end_sensor:
+          name: Sensor daty zakończenia diety
+          description: Sensor raportujący datę końca diety (np. sensor.dietly_*_dieta_data_zakonczenia).
+          selector:
+            entity:
+              filter:
+                - integration: dietly
+                  domain: sensor
+                  device_class: date
+        days_remaining_sensor:
+          name: Sensor dni do końca (opcjonalnie)
+          description: Sensor raportujący liczbę pozostałych dni (np. sensor.dietly_*_dieta_dni_do_konca).
+          default: ""
+          selector:
+            entity:
+              filter:
+                - integration: dietly
+                  domain: sensor
+    schedule_section:
+      name: Harmonogram i wyprzedzenie
+      icon: mdi:clock-outline
+      description: Określ, kiedy i z jakim wyprzedzeniem wysłać alert.
+      input:
+        check_time:
+          name: Godzina sprawdzenia
+          description: Godzina, o której ma nastąpić weryfikacja terminu zakończenia diety.
+          default: "17:00:00"
+          selector:
+            time: {}
+        days_before:
+          name: Główne przypomnienie (liczba dni)
+          description: Na ile dni przed końcem diety wysłać pierwsze przypomnienie.
+          default: 3
+          selector:
+            number:
+              min: 1
+              max: 14
+              step: 1
+              unit_of_measurement: "dni"
+              mode: box
+        notify_day_before:
+          name: Dodatkowe przypomnienie na 1 dzień przed
+          description: Wyślij także pilne przypomnienie dzień przed zakończeniem diety.
+          default: true
+          selector:
+            boolean: {}
+    notifications_section:
+      name: Powiadomienia i akcje
+      icon: mdi:bell-ring
+      description: Urządzenie docelowe i opcjonalne akcje.
+      input:
+        notify_device:
+          name: Urządzenie do powiadomień
+          description: Smartfon z aplikacją Home Assistant.
+          selector:
+            device:
+              filter:
+                integration: mobile_app
+        custom_actions:
+          name: Dodatkowe akcje (opcjonalnie)
+          description: Dodatkowe akcje uruchamiane wraz z powiadomieniem (np. TTS, włączenie światła).
+          default: []
+          selector:
+            action: {}
+
+mode: single
+max_exceeded: silent
+
+trigger:
+  - trigger: time
+    at: !input check_time
+
+variables:
+  end_sensor: !input order_end_sensor
+  remaining_sensor: !input days_remaining_sensor
+  days_before_input: !input days_before
+  day_before_enabled: !input notify_day_before
+
+condition:
+  - condition: template
+    value_template: >-
+      {% set end_val = states(end_sensor) %}
+      {% if end_val in ['unavailable', 'unknown', 'none', ''] %}
+        false
+      {% else %}
+        {% set dt = as_datetime(end_val) %}
+        {% if dt is none %}
+          false
+        {% else %}
+          {% set target_date = dt.date() %}
+          {% set today = now().date() %}
+          {% set diff = (target_date - today).days %}
+          {{ diff == (days_before_input | int) or (day_before_enabled and diff == 1) }}
+        {% endif %}
+      {% endif %}
+
+action:
+  - alias: "Wyślij powiadomienie o kończącej się diecie"
+    domain: mobile_app
+    type: notify
+    device_id: !input notify_device
+    title: "🥗 Dietly: Zbliża się koniec diety"
+    message: >-
+      {% set dt = as_datetime(states(end_sensor)) %}
+      {% set target_date = dt.date() if dt is not none else states(end_sensor) %}
+      {% set diff = (target_date - now().date()).days if dt is not none else 0 %}
+      {% if diff == 1 %}
+        Twoja dieta kończy się jutro ({{ target_date }})! Jeśli nie chcesz przerwy w dostawach, przedłuż zamówienie już dziś.
+      {% else %}
+        Twoja dieta kończy się za {{ diff }} dni ({{ target_date }}). Pamiętaj o przedłużeniu zamówienia w Dietly Club.
+      {% endif %}
+    data:
+      tag: "dietly-order-renewal-{{ end_sensor }}"
+      notification_icon: "mdi:calendar-alert"
+      clickAction: "https://dietly.pl/panel"
+      url: "https://dietly.pl/panel"
+  - sequence: !input custom_actions

@@ -12,12 +12,15 @@ from homeassistant.components.sensor import (
     SensorEntity,
     SensorStateClass,
 )
-from homeassistant.const import UnitOfEnergy, UnitOfMass
+from homeassistant.const import (
+    EntityCategory,
+    UnitOfEnergy,
+    UnitOfMass,
+    UnitOfTime,
+)
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import device_registry as dr
-from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.device_registry import (
-    ChildDeviceInfo,
     DeviceEntryType,
     DeviceInfo,
 )
@@ -25,10 +28,16 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import dt as dt_util
 
+try:
+    from homeassistant.helpers.device_registry import ChildDeviceInfo
+except ImportError:
+    ChildDeviceInfo = None  # type: ignore[assignment, misc]
+
 from . import DietlyConfigEntry
-from .const import CONF_ENTITY_NAMESPACE, DOMAIN
+from .const import CONF_ENTITY_NAMESPACE, CONF_MEAL_COUNT, DEFAULT_MEAL_COUNT, DOMAIN
 from .coordinator import DietlyCoordinator
 from .identity import entity_namespace
+from .models import DietlyMeal, DietlyOrder
 
 
 async def async_setup_entry(
@@ -72,34 +81,12 @@ async def async_setup_entry(
 def _remove_stale_entities(
     hass: HomeAssistant,
     entry: DietlyConfigEntry,
-    orders: dict[str, dict[str, Any]],
+    orders: dict[str, DietlyOrder],
     parent_device_id: str,
 ) -> None:
-    """Remove registry entries left behind by ended orders or old versions."""
-    registry = er.async_get(hass)
-    expected = {f"{_account_key(entry)}_active_diets"}
-    order_keys = (
-        "order_status",
-        "calorie_target",
-        "order_start",
-        "order_end",
-        "days_remaining",
-        "next_delivery",
-        "delivery_address",
-        "calories",
-        "protein",
-        "fat",
-        "carbohydrates",
-    )
-    for order_id, order in orders.items():
-        expected.update(f"{_account_key(entry)}_{order_id}_{key}" for key in order_keys)
-        expected.update(
-            f"{_account_key(entry)}_{order_id}_meal_{index + 1}"
-            for index in range(max(5, len(order.get("meals", []))))
-        )
-    for entity in er.async_entries_for_config_entry(registry, entry.entry_id):
-        if entity.domain == "sensor" and entity.unique_id not in expected:
-            registry.async_remove(entity.entity_id)
+    """Safely clean up removed devices only when active orders are known."""
+    if not orders:
+        return
 
     expected_children = {
         f"{_account_key(entry)}_{order.get('order_id')}" for order in orders.values()
@@ -119,25 +106,12 @@ def _remove_stale_entities(
         if dietly_identifiers and not dietly_identifiers.intersection(expected_main):
             devices.async_remove_device(device.id)
 
-    for child in dr.async_child_entries_for_config_entry(devices, entry.entry_id):
-        if child.parent_device_id != parent_device_id:
-            continue
-        dietly_identifiers = {
-            identifier for identifier in child.identifiers if identifier[0] == DOMAIN
-        }
-        if dietly_identifiers and not any(
-            identifier == (DOMAIN, child_id)
-            for child_id in expected_children
-            for identifier in dietly_identifiers
-        ):
-            devices.async_remove_device(child.id)
-
 
 def _order_entities(
     entry: DietlyConfigEntry,
     coordinator: DietlyCoordinator,
     order_id: str,
-    order: dict[str, Any],
+    order: DietlyOrder,
     parent_device_id: str,
 ) -> list[SensorEntity]:
     """Create one order device with order dates, menu totals and meal slots."""
@@ -157,7 +131,9 @@ def _order_entities(
             "carbohydrates",
         )
     ]
-    meal_count = max(5, len(order.get("meals", [])))
+    meal_count = entry.options.get(
+        CONF_MEAL_COUNT, max(DEFAULT_MEAL_COUNT, len(order.get("meals", [])))
+    )
     entities.extend(
         DietlyMealSensor(entry, coordinator, order_id, index, parent_device_id)
         for index in range(meal_count)
@@ -166,18 +142,28 @@ def _order_entities(
 
 
 def _device_info(
-    entry: DietlyConfigEntry, order: dict[str, Any], parent_device_id: str
-) -> ChildDeviceInfo:
+    entry: DietlyConfigEntry, order: DietlyOrder, parent_device_id: str
+) -> DeviceInfo:
     """Identify one active catering order as a service device."""
     provider = order.get("company_name") or "Dietly"
     diet = order.get("diet_name") or "Dieta"
     start = order.get("date_from")
     suffix = f" ({start})" if start else ""
     account_id = _account_key(entry)
-    return ChildDeviceInfo(
-        identifiers={(DOMAIN, f"{account_id}_{order.get('order_id')}")},
-        name=f"{provider} — {diet}{suffix}",
-        parent_device_id=parent_device_id,
+    order_id = order.get("order_id", "")
+    device_name = f"{provider} — {diet}{suffix}"
+    if ChildDeviceInfo is not None:
+        return ChildDeviceInfo(
+            identifiers={(DOMAIN, f"{account_id}_{order_id}")},
+            name=device_name,
+            parent_device_id=parent_device_id,
+        )
+    return DeviceInfo(
+        identifiers={(DOMAIN, f"{account_id}_{order_id}")},
+        name=device_name,
+        via_device=(DOMAIN, f"{account_id}_account"),
+        manufacturer=provider,
+        entry_type=DeviceEntryType.SERVICE,
     )
 
 
@@ -197,7 +183,6 @@ class DietlyAccountSensor(CoordinatorEntity[DietlyCoordinator], SensorEntity):
 
     _attr_has_entity_name = True
     _attr_translation_key = "active_diets"
-    _attr_icon = "mdi:account-multiple"
 
     def __init__(
         self, entry: DietlyConfigEntry, coordinator: DietlyCoordinator
@@ -253,17 +238,20 @@ class DietlyOrderSensor(CoordinatorEntity[DietlyCoordinator], SensorEntity):
             coordinator.data.get("orders", {}).get(order_id, {}),
             parent_device_id,
         )
+        if key in {"order_status", "order_start", "order_end", "delivery_address"}:
+            self._attr_entity_category = EntityCategory.DIAGNOSTIC
+
         if key in {"order_start", "order_end", "next_delivery"}:
             self._attr_device_class = SensorDeviceClass.DATE
         elif key == "days_remaining":
-            self._attr_native_unit_of_measurement = "d"
+            self._attr_native_unit_of_measurement = UnitOfTime.DAYS
             self._attr_state_class = SensorStateClass.MEASUREMENT
         elif key in {"calories", "calorie_target"}:
             self._attr_native_unit_of_measurement = UnitOfEnergy.KILO_CALORIE
+            self._attr_state_class = SensorStateClass.MEASUREMENT
         elif key in {"protein", "fat", "carbohydrates"}:
             self._attr_native_unit_of_measurement = UnitOfMass.GRAMS
-        elif key == "delivery_address":
-            self._attr_icon = "mdi:map-marker"
+            self._attr_state_class = SensorStateClass.MEASUREMENT
 
     @property
     def suggested_object_id(self) -> str:
@@ -286,7 +274,7 @@ class DietlyOrderSensor(CoordinatorEntity[DietlyCoordinator], SensorEntity):
         return f"dietly_{diet_slug}_{key_slug}"
 
     @property
-    def _order(self) -> dict[str, Any]:
+    def _order(self) -> DietlyOrder:
         return self.coordinator.data.get("orders", {}).get(self._order_id, {})
 
     @property
@@ -307,31 +295,36 @@ class DietlyOrderSensor(CoordinatorEntity[DietlyCoordinator], SensorEntity):
         if self._key == "order_end":
             return _parse_date(order.get("date_to"))
         if self._key == "next_delivery":
-            return _parse_date(order.get("delivery_date"))
+            return _parse_date(
+                order.get("next_delivery_date") or order.get("delivery_date")
+            )
         if self._key == "delivery_address":
-            return order.get("delivery_address") or "Brak adresu w danych Dietly"
+            addr = order.get("delivery_address")
+            return str(addr)[:255] if addr else None
         if self._key == "days_remaining":
             end_date = _parse_date(order.get("date_to"))
-            return (end_date - dt_util.now().date()).days if end_date else None
+            return max(0, (end_date - dt_util.now().date()).days) if end_date else None
         return order.get("nutrition", {}).get(self._key)
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         order = self._order
-        return {
+        attrs: dict[str, Any] = {
             "order_id": self._order_id,
             "company": order.get("company_name"),
             "diet": order.get("diet_name"),
             "order_end": order.get("date_to"),
             "delivery_date": order.get("delivery_date"),
-            "delivery_address": order.get("delivery_address"),
         }
+        if self._key in {"delivery_address", "next_delivery"}:
+            attrs["delivery_address"] = order.get("delivery_address")
+        return attrs
 
 
 class DietlyMealSensor(CoordinatorEntity[DietlyCoordinator], SensorEntity):
     """Expose a menu meal and its nutrition as attributes."""
 
-    _attr_has_entity_name = False
+    _attr_has_entity_name = True
     _attr_icon = "mdi:food"
 
     def __init__(
@@ -353,11 +346,11 @@ class DietlyMealSensor(CoordinatorEntity[DietlyCoordinator], SensorEntity):
         )
 
     @property
-    def _order(self) -> dict[str, Any]:
+    def _order(self) -> DietlyOrder:
         return self.coordinator.data.get("orders", {}).get(self._order_id, {})
 
     @property
-    def _meal(self) -> dict[str, Any]:
+    def _meal(self) -> DietlyMeal:
         meals = self._order.get("meals", [])
         return meals[self._index] if self._index < len(meals) else {}
 
@@ -368,7 +361,8 @@ class DietlyMealSensor(CoordinatorEntity[DietlyCoordinator], SensorEntity):
     @property
     def native_value(self) -> str | None:
         meal = self._meal
-        return (meal.get("name") or meal.get("slot")) if meal else None
+        val = (meal.get("name") or meal.get("slot")) if meal else None
+        return str(val)[:255] if val else None
 
     @property
     def name(self) -> str | None:
@@ -401,8 +395,7 @@ class DietlyMealSensor(CoordinatorEntity[DietlyCoordinator], SensorEntity):
             "allergens": meal.get("allergens", []),
             "ingredients": meal.get("ingredients", []),
             "delivery_date": order.get("delivery_date"),
-            "delivery_address": order.get("delivery_address"),
-            "order_end": order.get("date_to"),
+            "is_today": bool(order.get("is_today")),
         }
 
 
@@ -423,7 +416,7 @@ def _account_key(entry: DietlyConfigEntry) -> str:
     )
 
 
-def _order_slug(order: dict[str, Any]) -> str:
+def _order_slug(order: DietlyOrder) -> str:
     """Create a readable per-order ID component without internal numeric IDs."""
     pieces = (
         order.get("company_name") or "dietly",
@@ -435,6 +428,7 @@ def _order_slug(order: dict[str, Any]) -> str:
 
 def _slug(value: str) -> str:
     """Normalize Polish labels to Home Assistant object ID characters."""
-    normalized = unicodedata.normalize("NFKD", value)
+    val = value.replace("ł", "l").replace("Ł", "L")
+    normalized = unicodedata.normalize("NFKD", val)
     ascii_value = normalized.encode("ascii", "ignore").decode().lower()
     return re.sub(r"_+", "_", re.sub(r"[^a-z0-9]+", "_", ascii_value)).strip("_")

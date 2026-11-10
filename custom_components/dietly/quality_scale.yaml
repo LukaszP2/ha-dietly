@@ -1,0 +1,24 @@
+rules:
+  config_flow: done
+  test_before_configure: done
+  test_before_setup: done
+  unique_config_entry: done
+  entity_unique_id: done
+  has_entity_name: done
+  runtime_data: done
+  appropriate_polling: done
+  config_entry_unloading: done
+  reauthentication_flow: done
+  parallel_updates: done
+  devices: done
+  diagnostics: done
+  entity_category: done
+  entity_device_class: done
+  entity_disabled_by_default: done
+  entity_translations: done
+  exception_translations: done
+  icon_translations: done
+  reconfiguration_flow: done
+  test_coverage:
+    status: done
+    comment: "Unit test suite covers API normalization, config flow, reauth, options flow, diagnostics and sensors."

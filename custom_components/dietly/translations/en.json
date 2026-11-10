@@ -37,6 +37,18 @@
       "reauth_successful": "Signed in to Dietly again."
     }
   },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Dietly settings",
+        "description": "Configure delivery display and meal slot count.",
+        "data": {
+          "show_upcoming_menu": "Show upcoming delivery menu if today has no delivery",
+          "meal_count": "Number of meal sensors to expose"
+        }
+      }
+    }
+  },
   "entity": {
     "sensor": {
       "active_diets": {"name": "Active diets"},

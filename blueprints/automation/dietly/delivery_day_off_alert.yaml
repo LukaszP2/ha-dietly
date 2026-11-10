@@ -1,0 +1,98 @@
+blueprint:
+  name: "Dietly — Alert o braku dostawy na jutro (dzień bez diety)"
+  description: >-
+    Codziennie wieczorem sprawdza datę najbliższej zaplanowanej dostawy.
+    Jeśli data najbliższej dostawy nie przypada na dzień jutrzejszy (np. przerwa weekendowa,
+    święto, dzień pauzy lub koniec zamówienia), wysyła powiadomienie, aby przypomnieć
+    o konieczności zrobienia zakupów lub przygotowania posiłków.
+  domain: automation
+  homeassistant:
+    min_version: "2024.1.0"
+  input:
+    entities_section:
+      name: Sensor dostawy Dietly
+      icon: mdi:truck-delivery
+      description: Wybierz sensor raportujący datę najbliższej dostawy.
+      input:
+        next_delivery_sensor:
+          name: Sensor najbliższej dostawy
+          description: Sensor raportujący najbliższą datę dostawy (np. sensor.dietly_*_dostawa_data).
+          selector:
+            entity:
+              filter:
+                - integration: dietly
+                  domain: sensor
+                  device_class: date
+    schedule_section:
+      name: Harmonogram
+      icon: mdi:clock-outline
+      description: Określ godzinę wieczornego sprawdzenia.
+      input:
+        check_time:
+          name: Godzina sprawdzenia
+          description: Godzina, o której ma nastąpić weryfikacja (najlepiej wieczorem, np. 20:00).
+          default: "20:00:00"
+          selector:
+            time: {}
+    notifications_section:
+      name: Powiadomienia i akcje
+      icon: mdi:bell-ring
+      description: Urządzenie docelowe oraz opcjonalne akcje.
+      input:
+        notify_device:
+          name: Urządzenie do powiadomień
+          description: Smartfon z aplikacją Home Assistant.
+          selector:
+            device:
+              filter:
+                integration: mobile_app
+        custom_actions:
+          name: Dodatkowe akcje (opcjonalnie)
+          description: Opcjonalne akcje uruchamiane wraz z powiadomieniem.
+          default: []
+          selector:
+            action: {}
+
+mode: single
+max_exceeded: silent
+
+trigger:
+  - trigger: time
+    at: !input check_time
+
+variables:
+  delivery_sensor: !input next_delivery_sensor
+
+condition:
+  - condition: template
+    value_template: >-
+      {% set delivery_val = states(delivery_sensor) %}
+      {% if delivery_val in ['unavailable', 'unknown', 'none', ''] %}
+        false
+      {% else %}
+        {% set dt = as_datetime(delivery_val) %}
+        {% if dt is none %}
+          false
+        {% else %}
+          {% set next_del_date = dt.date() %}
+          {% set tomorrow = (now() + timedelta(days=1)).date() %}
+          {# Warunek: data najbliższej dostawy to NIE jest jutro (jutro brak diety) #}
+          {{ next_del_date != tomorrow }}
+        {% endif %}
+      {% endif %}
+
+action:
+  - alias: "Wyślij informację o braku dostawy na jutro"
+    domain: mobile_app
+    type: notify
+    device_id: !input notify_device
+    title: "🛒 Dietly: Brak dostawy na jutro"
+    message: >-
+      {% set dt = as_datetime(states(delivery_sensor)) %}
+      {% set next_del_str = dt.date() if dt is not none else states(delivery_sensor) %}
+      Jutro nie masz zaplanowanej dostawy z cateringu Dietly.
+      Najbliższa dostawa: {{ next_del_str }}. Pamiętaj o zaplanowaniu posiłków lub zakupów na jutrzejszy dzień!
+    data:
+      tag: "dietly-day-off-alert-{{ delivery_sensor }}"
+      notification_icon: "mdi:food-off"
+  - sequence: !input custom_actions

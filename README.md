@@ -49,11 +49,29 @@ Po zainstalowaniu i ponownym uruchomieniu Home Assistant, kliknij poniższy przy
 2. Wyszukaj **Dietly**.
 3. Zaloguj się swoimi danymi konta.
 
+### Gotowe szablony automatyzacji (Blueprints)
+
+Integracja zawiera zestaw gotowych szablonów automatyzacji w katalogu `blueprints/automation/dietly/`:
+1. **Codzienne menu i kalorie** (`daily_menu_notification.yaml`) – poranne powiadomienie z podsumowaniem posiłków i wartości odżywczych na dziś.
+2. **Przypomnienie o końcu diety** (`diet_renewal_reminder.yaml`) – powiadomienie na 3 dni i 1 dzień przed końcem aktywnej diety, aby w porę złożyć kolejne zamówienie.
+3. **Alert o braku dostawy na jutro** (`delivery_day_off_alert.yaml`) – wieczorny alert informujący o przerwie w cateringu (np. w weekend lub święto), aby zaplanować zakupy.
+4. **Synchronizacja posiłków z Fitatu** (`dietly_to_fitatu_sync.yaml`) – automatyczne dodawanie dań i wartości makroskładników do dziennika w Fitatu.
+5. **Wykrycie dostarczenia paczki pod drzwi** (`delivery_arrival_notification.yaml`) – powiadomienie o zostawieniu torby przez kuriera w nocnym oknie dostaw (kamera / czujnik ruchu).
+
 ---
 
 ## 🇬🇧 Description
 
 Unofficial Dietly.pl (dietary catering) integration for Home Assistant. Monitors active orders, deliveries, daily meals, calories, and macronutrient targets.
+
+### Included Automation Blueprints
+
+Available in `blueprints/automation/dietly/`:
+1. **Daily Menu Notification** – morning summary of scheduled meals and calories.
+2. **Diet Renewal Reminder** – timely alerts before subscription ends to avoid delivery gaps.
+3. **Delivery Day-Off Alert** – evening reminder when no catering is scheduled for tomorrow.
+4. **Fitatu Sync** – automatically logs meals and macros into Fitatu food diary.
+5. **Package Arrival Detection** – detects delivery courier arrival during overnight delivery hours.
 
 ### Installation via HACS (Custom Repository)
 

@@ -37,6 +37,18 @@
       "reauth_successful": "Ponownie zalogowano do Dietly."
     }
   },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Ustawienia Dietly",
+        "description": "Skonfiguruj wyświetlanie menu dostawy oraz liczbę slotów posiłków.",
+        "data": {
+          "show_upcoming_menu": "Pokazuj menu nadchodzącej dostawy, jeśli dzisiaj nie ma dostawy",
+          "meal_count": "Liczba encji posiłków do utworzenia"
+        }
+      }
+    }
+  },
   "entity": {
     "sensor": {
       "active_diets": {"name": "Aktywne diety"},

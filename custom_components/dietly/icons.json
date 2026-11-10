@@ -1,0 +1,42 @@
+{
+  "entity": {
+    "sensor": {
+      "active_diets": {
+        "default": "mdi:account-multiple"
+      },
+      "order_status": {
+        "default": "mdi:information-outline"
+      },
+      "calorie_target": {
+        "default": "mdi:target"
+      },
+      "order_start": {
+        "default": "mdi:calendar-start"
+      },
+      "order_end": {
+        "default": "mdi:calendar-end"
+      },
+      "days_remaining": {
+        "default": "mdi:calendar-clock"
+      },
+      "next_delivery": {
+        "default": "mdi:truck-delivery"
+      },
+      "delivery_address": {
+        "default": "mdi:map-marker"
+      },
+      "calories": {
+        "default": "mdi:fire"
+      },
+      "protein": {
+        "default": "mdi:egg"
+      },
+      "fat": {
+        "default": "mdi:oil"
+      },
+      "carbohydrates": {
+        "default": "mdi:barley"
+      }
+    }
+  }
+}

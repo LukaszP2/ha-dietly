@@ -1,0 +1,77 @@
+blueprint:
+  name: "Dietly — Codzienne powiadomienie o menu i kaloriach"
+  description: >-
+    Wysyła codzienne powiadomienie o poranku z podsumowaniem menu na dany dzień,
+    docelowymi kaloriami i zaplanowanymi posiłkami.
+  domain: automation
+  homeassistant:
+    min_version: "2024.1.0"
+  input:
+    notify_device:
+      name: Urządzenie do powiadomień
+      description: Wybierz smartfon z aplikacją Home Assistant, na który ma przyjść menu.
+      selector:
+        device:
+          integration: mobile_app
+    notification_time:
+      name: Godzina powiadomienia
+      description: Godzina, o której chcesz otrzymać podsumowanie menu.
+      default: "07:30:00"
+      selector:
+        time: {}
+    calories_sensor:
+      name: Sensor kalorii menu
+      description: Sensor raportujący łączne kalorie menu na dzisiaj.
+      selector:
+        entity:
+          filter:
+            - integration: dietly
+              domain: sensor
+    breakfast_sensor:
+      name: Sensor śniadania (opcjonalnie)
+      description: Sensor pierwszego posiłku.
+      default: ""
+      selector:
+        entity:
+          filter:
+            - integration: dietly
+              domain: sensor
+    dinner_sensor:
+      name: Sensor obiadu (opcjonalnie)
+      description: Sensor głównego posiłku (obiadu).
+      default: ""
+      selector:
+        entity:
+          filter:
+            - integration: dietly
+              domain: sensor
+
+trigger:
+  - platform: time
+    at: !input notification_time
+
+condition:
+  - condition: template
+    value_template: >-
+      {{ states(calories_sensor) not in ['unavailable', 'unknown', 'None', ''] }}
+
+action:
+  - variables:
+      calories_sensor: !input calories_sensor
+      breakfast_sensor: !input breakfast_sensor
+      dinner_sensor: !input dinner_sensor
+      calories_val: "{{ states(calories_sensor) }}"
+      breakfast_val: "{{ states(breakfast_sensor) if breakfast_sensor else '' }}"
+      dinner_val: "{{ states(dinner_sensor) if dinner_sensor else '' }}"
+  - domain: mobile_app
+    type: notify
+    device_id: !input notify_device
+    title: "🥗 Menu Dietly na dziś"
+    message: >-
+      Dziś w menu: {{ calories_val }} kcal.
+      {% if breakfast_val and breakfast_val not in ['unavailable', 'unknown'] %}
+      🥣 Śniadanie: {{ breakfast_val }}
+      {% endif %}
+      {% if dinner_val and dinner_val not in ['unavailable', 'unknown'] %}
+      🍲 Obiad: {{ dinner_val }}
+      {% endif %}

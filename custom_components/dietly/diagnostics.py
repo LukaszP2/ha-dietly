@@ -13,8 +13,15 @@ async def async_get_config_entry_diagnostics(
     hass: HomeAssistant, entry: DietlyConfigEntry
 ) -> dict[str, Any]:
     """Return useful account/order status without credentials or addresses."""
-    coordinator = entry.runtime_data
-    orders = coordinator.data.get("orders", {}) if coordinator.data else {}
+    coordinator = getattr(entry, "runtime_data", None)
+    if coordinator is None or coordinator.data is None:
+        return {
+            "account": {
+                "configured": bool(entry.data.get("email")),
+            },
+            "status": "not_loaded",
+        }
+    orders = coordinator.data.get("orders", {})
     return {
         "account": {
             "configured": bool(entry.data.get("email")),

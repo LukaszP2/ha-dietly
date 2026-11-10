@@ -1,0 +1,142 @@
+blueprint:
+  name: "Dietly — Synchronizacja posiłku z Fitatu"
+  description: >-
+    Automatycznie dodaje danie z cateringu Dietly do dziennika żywieniowego w aplikacji Fitatu.
+    Wykorzystuje wartości odżywcze raportowane przez sensor posiłku Dietly (kalorie, białko,
+    tłuszcze, węglowodany) i wywołuje usługę fitatu.add_custom_item.
+  domain: automation
+  homeassistant:
+    min_version: "2024.1.0"
+  input:
+    dietly_section:
+      name: Konfiguracja posiłku Dietly
+      icon: mdi:food-apple
+      description: Wybierz sensor posiłku Dietly.
+      input:
+        meal_sensor:
+          name: Sensor posiłku Dietly
+          description: Sensor konkretnego posiłku (np. sensor.dietly_*_posilek_sniadanie).
+          selector:
+            entity:
+              filter:
+                - integration: dietly
+                  domain: sensor
+    fitatu_section:
+      name: Konfiguracja Fitatu
+      icon: mdi:calculator-variant
+      description: Wybierz docelowy posiłek w aplikacji Fitatu.
+      input:
+        fitatu_entry:
+          name: Konto Fitatu
+          description: Wybierz skonfigurowane konto integracji Fitatu.
+          selector:
+            config_entry:
+              integration: fitatu
+        fitatu_meal:
+          name: Typ posiłku w Fitatu
+          description: Posiłek w dzienniku Fitatu, do którego ma trafić danie.
+          default: "breakfast"
+          selector:
+            select:
+              options:
+                - label: "Śniadanie (Breakfast)"
+                  value: "breakfast"
+                - label: "II Śniadanie (Second breakfast)"
+                  value: "second_breakfast"
+                - label: "Obiad (Lunch)"
+                  value: "lunch"
+                - label: "Podwieczorek (Snack)"
+                  value: "snack"
+                - label: "Kolacja (Dinner/Supper)"
+                  value: "dinner"
+        mark_eaten:
+          name: Oznacz od razu jako zjedzone
+          description: Zaznacz, jeśli posiłek ma być od razu zaliczony do zjedzonych w Fitatu.
+          default: true
+          selector:
+            boolean: {}
+    trigger_section:
+      name: Wyzwalacz automatyzacji
+      icon: mdi:clock-start
+      description: Określ, kiedy posiłek ma zostać dodany do Fitatu.
+      input:
+        sync_time:
+          name: Godzina synchronizacji
+          description: Godzina, o której posiłek zostanie wysłany do Fitatu (np. o 08:00 dla śniadania).
+          default: "08:00:00"
+          selector:
+            time: {}
+    notifications_section:
+      name: Powiadomienie (opcjonalnie)
+      icon: mdi:bell-outline
+      description: Opcjonalne potwierdzenie na telefon.
+      input:
+        notify_device:
+          name: Urządzenie do powiadomień (opcjonalnie)
+          description: Smartfon, na który ma przyjść potwierdzenie pomyślnego dodania posiłku.
+          default: ""
+          selector:
+            device:
+              filter:
+                integration: mobile_app
+
+mode: single
+max_exceeded: silent
+
+trigger:
+  - trigger: time
+    at: !input sync_time
+
+variables:
+  m_sensor: !input meal_sensor
+  target_entry: !input fitatu_entry
+  target_meal: !input fitatu_meal
+  is_eaten: !input mark_eaten
+  notification_device: !input notify_device
+
+condition:
+  - condition: template
+    value_template: >-
+      {# Warunek: sensor posiłku jest dostępny i posiada przypisane kalorie na dzisiaj #}
+      {% set meal_name = states(m_sensor) %}
+      {% set is_today = state_attr(m_sensor, 'is_today') %}
+      {% set cal = state_attr(m_sensor, 'calories') %}
+      {{ meal_name not in ['unavailable', 'unknown', 'none', ''] and (is_today is none or is_today == true) and cal is not none and (cal | float(0)) > 0 }}
+
+action:
+  - alias: "Pobierz dane posiłku i dodaj do Fitatu"
+    variables:
+      dish_name: "{{ states(m_sensor) }}"
+      dish_cal: "{{ (state_attr(m_sensor, 'calories') | float(0)) | round }}"
+      dish_prot: "{{ (state_attr(m_sensor, 'protein_g') | float(0)) | round(1) }}"
+      dish_fat: "{{ (state_attr(m_sensor, 'fat_g') | float(0)) | round(1) }}"
+      dish_carbs: "{{ (state_attr(m_sensor, 'carbohydrates_g') | float(0)) | round(1) }}"
+      dish_date: "{{ state_attr(m_sensor, 'delivery_date') or now().date().isoformat() }}"
+
+  - alias: "Wywołaj usługę Fitatu add_custom_item"
+    action: fitatu.add_custom_item
+    data:
+      config_entry_id: !input fitatu_entry
+      meal: !input fitatu_meal
+      name: "{{ dish_name }}"
+      calories: "{{ dish_cal | int }}"
+      protein_g: "{{ dish_prot | float }}"
+      fat_g: "{{ dish_fat | float }}"
+      carbs_g: "{{ dish_carbs | float }}"
+      eaten: !input mark_eaten
+      date: "{{ dish_date }}"
+
+  - alias: "Wyślij potwierdzenie na telefon jeśli wybrano urządzenie"
+    choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ notification_device != '' }}"
+        sequence:
+          - domain: mobile_app
+            type: notify
+            device_id: !input notify_device
+            title: "Fitatu 🥗 Posiłek dodany z Dietly"
+            message: "Dodano: {{ dish_name }} ({{ dish_cal }} kcal, B: {{ dish_prot }}g, T: {{ dish_fat }}g, W: {{ dish_carbs }}g) do kategorii {{ target_meal }}."
+            data:
+              tag: "dietly-fitatu-sync-{{ m_sensor }}"
+              notification_icon: "mdi:check-circle-outline"

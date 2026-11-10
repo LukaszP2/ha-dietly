@@ -1,0 +1,120 @@
+blueprint:
+  name: "Dietly — Wykrycie dostarczenia paczki pod drzwi"
+  description: >-
+    Wykrywa wizytę kuriera i dostarczenie torby z cateringiem pod drzwi domu.
+    Gdy czujnik ruchu, kamera lub czujnik furtki zarejestruje aktywność w nocnym oknie
+    dostaw (np. między 02:00 a 06:30), a sensor Dietly potwierdza, że na dzisiejszy dzień
+    zaplanowano dostawę, automatyzacja wysyła powiadomienie o dostarczeniu jedzenia.
+  domain: automation
+  homeassistant:
+    min_version: "2024.1.0"
+  input:
+    motion_section:
+      name: Czujnik wykrywający kuriera
+      icon: mdi:motion-sensor
+      description: Wybierz sensor wykrywający ruch przed wejściem lub otwarcie furtki.
+      input:
+        motion_sensor:
+          name: Czujnik ruchu lub kamery
+          description: Sensor binarny przy wejściu (np. binary_sensor.ganek_ruch lub binary_sensor.furtka_kontakt).
+          selector:
+            entity:
+              domain: binary_sensor
+    dietly_section:
+      name: Weryfikacja dostawy Dietly
+      icon: mdi:truck-delivery
+      description: Wybierz sensor daty dostawy Dietly.
+      input:
+        next_delivery_sensor:
+          name: Sensor daty dostawy
+          description: Sensor raportujący najbliższą datę dostawy (np. sensor.dietly_*_dostawa_data).
+          selector:
+            entity:
+              filter:
+                - integration: dietly
+                  domain: sensor
+                  device_class: date
+    time_window_section:
+      name: Nocne okno dostawcze
+      icon: mdi:clock-time-four-outline
+      description: Zakres godzin, w którym kurier cateringowy zazwyczaj zostawia paczkę.
+      input:
+        window_start:
+          name: Początek okna dostaw
+          description: Godzina, od której ruch ma być traktowany jako potencjalna dostawa.
+          default: "02:00:00"
+          selector:
+            time: {}
+        window_end:
+          name: Koniec okna dostaw
+          description: Godzina, do której ruch ma być traktowany jako dostawa.
+          default: "06:30:00"
+          selector:
+            time: {}
+    notifications_section:
+      name: Powiadomienia i akcje
+      icon: mdi:bell-ring
+      description: Gdzie wysłać powiadomienie oraz jakie akcje uruchomić.
+      input:
+        notify_device:
+          name: Urządzenie do powiadomień
+          description: Smartfon z aplikacją Home Assistant.
+          selector:
+            device:
+              filter:
+                integration: mobile_app
+        custom_actions:
+          name: Dodatkowe akcje (opcjonalnie)
+          description: Opcjonalne akcje (np. włączenie światła na ganku, zapisanie klatki z kamery).
+          default: []
+          selector:
+            action: {}
+
+mode: single
+max_exceeded: silent
+
+trigger:
+  - trigger: state
+    entity_id: !input motion_sensor
+    to: "on"
+
+variables:
+  delivery_sensor: !input next_delivery_sensor
+  start_time: !input window_start
+  end_time: !input window_end
+
+condition:
+  # 1. Sprawdzenie, czy ruch nastąpił w nocnym oknie dostawczym
+  - condition: time
+    after: !input window_start
+    before: !input window_end
+  # 2. Sprawdzenie, czy dzisiaj jest dzień dostawy według Dietly
+  - condition: template
+    value_template: >-
+      {% set delivery_val = states(delivery_sensor) %}
+      {% if delivery_val in ['unavailable', 'unknown', 'none', ''] %}
+        false
+      {% else %}
+        {% set dt = as_datetime(delivery_val) %}
+        {% if dt is none %}
+          false
+        {% else %}
+          {# Warunek: najbliższa data dostawy z Dietly to dzisiejszy dzień #}
+          {{ dt.date() == now().date() }}
+        {% endif %}
+      {% endif %}
+
+action:
+  - alias: "Wyślij powiadomienie o dostarczeniu cateringu"
+    domain: mobile_app
+    type: notify
+    device_id: !input notify_device
+    title: "📦 Dietly: Paczka z dietą pod drzwiami!"
+    message: >-
+      Wykryto ruch przed wejściem o {{ now().strftime('%H:%M') }}.
+      Twoja dzisiejsza dostawa cateringu dietetycznego prawdopodobnie czeka pod drzwiami!
+    data:
+      tag: "dietly-package-arrival-{{ now().date().isoformat() }}"
+      notification_icon: "mdi:package-variant-closed-check"
+      group: "dietly-deliveries"
+  - sequence: !input custom_actions

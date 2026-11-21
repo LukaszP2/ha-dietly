@@ -4,6 +4,9 @@
       "active_diets": {
         "default": "mdi:account-multiple"
       },
+      "active_surprise_packages": {
+        "default": "mdi:gift-outline"
+      },
       "order_status": {
         "default": "mdi:information-outline"
       },

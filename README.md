@@ -16,7 +16,8 @@
 Nieoficjalna integracja z portalem Dietly.pl (catering dietetyczny, diety pudełkowe) dla Home Assistant. Pozwala na automatyczne śledzenie aktywnych zamówień, dostaw, posiłków oraz dziennych wartości kalorycznych i makroskładników.
 
 ### Główne funkcje
-- Podsumowanie konta i liczba aktywnych diet
+- Podsumowanie konta: liczba aktywnych diet oraz paczek niespodzianek
+- Obsługa zamówień standardowych oraz paczek niespodzianek (ratowanie jedzenia / zero-waste)
 - Szczegóły aktywnego zamówienia (status, daty rozpoczęcia i zakończenia, dni do końca, adres i godzina dostawy)
 - Dzienne podsumowanie makroskładników: kalorie (kcal), białko (g), tłuszcze (g), węglowodany (g)
 - Sensory posiłków z informacjami o menu (śniadanie, II śniadanie, obiad, podwieczorek, kolacja)
@@ -62,7 +63,7 @@ Integracja zawiera zestaw gotowych szablonów automatyzacji w katalogu `blueprin
 
 ## 🇬🇧 Description
 
-Unofficial Dietly.pl (dietary catering) integration for Home Assistant. Monitors active orders, deliveries, daily meals, calories, and macronutrient targets.
+Unofficial Dietly.pl (dietary catering) integration for Home Assistant. Monitors active orders, surprise mystery packages, deliveries, daily meals, calories, and macronutrient targets.
 
 ### Included Automation Blueprints
 

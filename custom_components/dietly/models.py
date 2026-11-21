@@ -44,6 +44,8 @@ class DietlyOrder(TypedDict, total=False):
     delivery_address: str | None
     meals: list[DietlyMeal]
     nutrition: DietlyNutrition
+    order_type: str | None
+    is_surprise: bool
 
 
 class DietlyData(TypedDict):

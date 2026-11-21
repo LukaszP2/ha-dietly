@@ -10,6 +10,7 @@ from custom_components.dietly.api import (
     DietlyApi,
     _company_id_for_order,
     _is_past,
+    _is_surprise_order,
     _normalize_address,
     _normalize_meal,
     _number,
@@ -130,6 +131,21 @@ class TestDietlyParsing(unittest.TestCase):
         self.assertFalse(_is_past("", today))
         self.assertFalse(_is_past(None, today))
 
+    def test_surprise_order_detection(self) -> None:
+        """Test detection of surprise/surplus packages."""
+        self.assertTrue(_is_surprise_order({"orderType": "SURPRISE_PACKAGE"}))
+        self.assertTrue(_is_surprise_order({"orderType": "ZERO_WASTE"}))
+        self.assertTrue(_is_surprise_order({"orderType": "FOOD_WASTE"}))
+        self.assertTrue(_is_surprise_order({"programName": "Paczka niespodzianka"}))
+        self.assertTrue(_is_surprise_order({"dietName": "Paczka Niespodzianka"}))
+        self.assertTrue(
+            _is_surprise_order({}, {"programName": "Paczka niespodzianka - 3 posiłki"})
+        )
+        # Normal diet should not be flagged as surprise
+        self.assertFalse(
+            _is_surprise_order({"orderType": "DIET", "dietName": "Niski IG", "programName": "Gotowa dieta"})
+        )
+
 
 class TestDietlyApiSession(unittest.IsolatedAsyncioTestCase):
     """Test Dietly API client session handling and auto-relogin."""
@@ -164,6 +180,52 @@ class TestDietlyApiSession(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(res, {"results": []})
             mock_login.assert_awaited_once()
             self.assertEqual(call_count, 2)
+
+    async def test_get_active_diets_with_surprise_package(self) -> None:
+        """Verify that a surprise package order is properly fetched and normalized."""
+        session = MagicMock()
+        api = DietlyApi(session, "user@example.com", "secret")
+        today = date(2026, 11, 21)
+
+        raw_orders_response = {
+            "results": [
+                {
+                    "orderId": 8888,
+                    "orderType": "SURPRISE_PACKAGE",
+                    "status": "ACTIVE",
+                    "companyName": "testcatering",
+                    "companyFullName": "Test Catering",
+                    "programName": "Paczka niespodzianka",
+                    "dateFrom": "2026-11-21",
+                    "dateTo": "2026-11-21",
+                    "address": {"street": "Długa", "buildingNumber": "1", "city": "Wrocław"},
+                }
+            ],
+            "totalPages": 1,
+        }
+
+        async def fake_get(path, params=None, company_id=None, _retried=False):
+            if path == "/profile/profile-order/all":
+                return raw_orders_response
+            if path == "/company/customer/order/8888":
+                # Detail endpoint might have empty deliveries or basic info
+                return {"orderId": 8888, "deliveries": []}
+            return {}
+
+        with patch.object(api, "_get", side_effect=fake_get):
+            diets = await api.async_get_active_diets(today)
+            self.assertIn("8888", diets)
+            order = diets["8888"]
+            self.assertEqual(order["order_id"], "8888")
+            self.assertEqual(order["diet_name"], "Paczka niespodzianka")
+            self.assertTrue(order["is_surprise"])
+            self.assertTrue(order["is_today"])
+            self.assertEqual(order["delivery_date"], "2026-11-21")
+            self.assertEqual(order["next_delivery_date"], "2026-11-21")
+            self.assertEqual(order["delivery_address"], "Długa, 1, Wrocław")
+            self.assertEqual(len(order["meals"]), 1)
+            self.assertEqual(order["meals"][0]["slot"], "Paczka niespodzianka")
+
 
 
 if __name__ == "__main__":

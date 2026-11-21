@@ -31,7 +31,12 @@ async def async_get_config_entry_diagnostics(
             "last_update": coordinator.last_update.isoformat()
             if coordinator.last_update
             else None,
-            "active_diet_count": len(orders),
+            "active_diet_count": sum(
+                1 for o in orders.values() if not o.get("is_surprise")
+            ),
+            "active_surprise_count": sum(
+                1 for o in orders.values() if o.get("is_surprise")
+            ),
         },
         "diets": [
             {
@@ -39,6 +44,7 @@ async def async_get_config_entry_diagnostics(
                 "company": order.get("company_name"),
                 "diet": order.get("diet_name"),
                 "status": order.get("status"),
+                "is_surprise": bool(order.get("is_surprise")),
                 "date_from": order.get("date_from"),
                 "date_to": order.get("date_to"),
                 "delivery_date": order.get("delivery_date"),

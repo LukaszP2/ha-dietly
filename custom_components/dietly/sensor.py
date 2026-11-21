@@ -58,7 +58,10 @@ async def async_setup_entry(
     _remove_stale_entities(
         hass, entry, coordinator.data.get("orders", {}), parent_device.id
     )
-    async_add_entities([DietlyAccountSensor(entry, coordinator)])
+    async_add_entities([
+        DietlyAccountSensor(entry, coordinator),
+        DietlySurprisePackagesSensor(entry, coordinator),
+    ])
 
     @callback
     def add_order_sensors() -> None:
@@ -193,12 +196,38 @@ class DietlyAccountSensor(CoordinatorEntity[DietlyCoordinator], SensorEntity):
 
     @property
     def native_value(self) -> int:
-        return len(self.coordinator.data.get("orders", {}))
+        orders = self.coordinator.data.get("orders", {})
+        return sum(1 for order in orders.values() if not order.get("is_surprise"))
 
     @property
     def suggested_object_id(self) -> str:
         """Use a short, readable entity ID for the account summary."""
         return "dietly_aktywne_diety"
+
+
+class DietlySurprisePackagesSensor(CoordinatorEntity[DietlyCoordinator], SensorEntity):
+    """Show the number of active surprise packages on the account device."""
+
+    _attr_has_entity_name = True
+    _attr_translation_key = "active_surprise_packages"
+    _attr_icon = "mdi:gift-outline"
+
+    def __init__(
+        self, entry: DietlyConfigEntry, coordinator: DietlyCoordinator
+    ) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{_account_key(entry)}_active_surprise_packages"
+        self._attr_device_info = _account_device_info(entry)
+
+    @property
+    def native_value(self) -> int:
+        orders = self.coordinator.data.get("orders", {})
+        return sum(1 for order in orders.values() if bool(order.get("is_surprise")))
+
+    @property
+    def suggested_object_id(self) -> str:
+        """Use a short, readable entity ID for the account summary."""
+        return "dietly_aktywne_paczki_niespodzianki"
 
 
 class DietlyOrderSensor(CoordinatorEntity[DietlyCoordinator], SensorEntity):
@@ -315,6 +344,8 @@ class DietlyOrderSensor(CoordinatorEntity[DietlyCoordinator], SensorEntity):
             "diet": order.get("diet_name"),
             "order_end": order.get("date_to"),
             "delivery_date": order.get("delivery_date"),
+            "order_type": order.get("order_type"),
+            "is_surprise": bool(order.get("is_surprise")),
         }
         if self._key in {"delivery_address", "next_delivery"}:
             attrs["delivery_address"] = order.get("delivery_address")
@@ -396,6 +427,7 @@ class DietlyMealSensor(CoordinatorEntity[DietlyCoordinator], SensorEntity):
             "ingredients": meal.get("ingredients", []),
             "delivery_date": order.get("delivery_date"),
             "is_today": bool(order.get("is_today")),
+            "is_surprise": bool(order.get("is_surprise")),
         }
 
 

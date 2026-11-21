@@ -52,6 +52,7 @@
   "entity": {
     "sensor": {
       "active_diets": {"name": "Aktywne diety"},
+      "active_surprise_packages": {"name": "Aktywne paczki niespodzianki"},
       "order_status": {"name": "Zamówienie — Status"},
       "calorie_target": {"name": "Dieta — Kalorie docelowe"},
       "order_start": {"name": "Dieta — Data rozpoczęcia"},

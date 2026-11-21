@@ -287,12 +287,32 @@ class DietlyApi:
             if not isinstance(order, dict):
                 _LOGGER.warning("Skipping Dietly order with an invalid detail response")
                 continue
+
+            is_surprise = _is_surprise_order(active, nested_order)
+            order_type = str(
+                active.get("orderType")
+                or nested_order.get("orderType")
+                or ("SURPRISE_PACKAGE" if is_surprise else "DIET")
+            )
+
             deliveries = _as_list(order, "deliveries")
             candidates = [
                 item
                 for item in deliveries
                 if isinstance(item, dict) and str(item.get("date", "")) >= today_iso
             ]
+            if not candidates:
+                for candidate_date in (
+                    order.get("deliveryDate"),
+                    active.get("deliveryDate"),
+                    nested_order.get("deliveryDate"),
+                    date_from,
+                    date_to,
+                ):
+                    if candidate_date and str(candidate_date)[:10] >= today_iso:
+                        candidates = [{"date": str(candidate_date)[:10]}]
+                        break
+
             next_candidate = (
                 min(candidates, key=lambda item: str(item.get("date", "")))
                 if candidates
@@ -339,6 +359,20 @@ class DietlyApi:
                             if isinstance(item, dict)
                         ]
 
+            if not meals and is_surprise and (delivery is not None or date_from == today_iso or date_to == today_iso):
+                meals = [
+                    {
+                        "slot": "Paczka niespodzianka",
+                        "name": "Zawartość niespodzianka (ratowanie jedzenia)",
+                        "calories": None,
+                        "protein": None,
+                        "fat": None,
+                        "carbohydrates": None,
+                        "allergens": [],
+                        "ingredients": [],
+                    }
+                ]
+
             diet_raw = order.get("diet")
             diet: dict[str, Any] = diet_raw if isinstance(diet_raw, dict) else {}
             date_from = date_from or order.get("dateFrom")
@@ -352,7 +386,12 @@ class DietlyApi:
                 or (delivery or {}).get("address")
                 or order.get("deliveryAddress")
                 or order.get("address")
+                or active.get("deliveryAddress")
+                or active.get("address")
+                or nested_order.get("deliveryAddress")
+                or nested_order.get("address")
             )
+            default_name = "Paczka niespodzianka" if is_surprise else None
             key = str(order_id)
             diets[key] = DietlyOrder(
                 order_id=key,
@@ -367,6 +406,9 @@ class DietlyApi:
                     active.get("dietName")
                     or nested_order.get("dietName")
                     or diet.get("dietName")
+                    or active.get("programName")
+                    or nested_order.get("programName")
+                    or default_name
                 ),
                 status=active.get("status") or nested_order.get("status", "ACTIVE"),
                 calorie_target=_number(
@@ -379,12 +421,42 @@ class DietlyApi:
                 date_to=date_to,
                 next_delivery_date=next_delivery_date,
                 delivery_date=delivery_date,
-                is_today=delivery is not None and delivery.get("date") == today_iso,
+                is_today=(
+                    (delivery is not None and delivery.get("date") == today_iso)
+                    or (delivery_date == today_iso)
+                ),
                 delivery_address=delivery_address,
                 meals=meals,
                 nutrition=_nutrition_totals(meals),
+                order_type=order_type,
+                is_surprise=is_surprise,
             )
         return diets
+
+
+
+def _is_surprise_order(
+    order: dict[str, Any], nested: dict[str, Any] | None = None
+) -> bool:
+    """Check if the order represents a mystery/surprise surplus package."""
+    nested = nested or {}
+    order_type = str(order.get("orderType") or nested.get("orderType") or "").upper()
+    if any(
+        k in order_type
+        for k in ("SURPRISE", "PACKAGE", "ZERO_WASTE", "FOOD_WASTE", "BOX")
+    ):
+        return True
+    text_fields = [
+        str(order.get("programName") or ""),
+        str(order.get("dietName") or ""),
+        str(nested.get("programName") or ""),
+        str(nested.get("dietName") or ""),
+    ]
+    for text in text_fields:
+        lower = text.lower()
+        if "niespodzian" in lower or "surprise" in lower or "zero waste" in lower:
+            return True
+    return False
 
 
 def _as_list(data: Any, *keys: str) -> list[Any]:

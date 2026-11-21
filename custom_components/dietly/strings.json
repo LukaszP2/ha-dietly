@@ -52,6 +52,7 @@
   "entity": {
     "sensor": {
       "active_diets": {"name": "Active diets"},
+      "active_surprise_packages": {"name": "Active surprise packages"},
       "order_status": {"name": "Order — Status"},
       "calorie_target": {"name": "Diet — Calorie target"},
       "order_start": {"name": "Diet — Start date"},

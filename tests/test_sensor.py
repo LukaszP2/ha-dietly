@@ -7,8 +7,10 @@ from datetime import date
 from unittest.mock import MagicMock
 
 from custom_components.dietly.sensor import (
+    DietlyAccountSensor,
     DietlyMealSensor,
     DietlyOrderSensor,
+    DietlySurprisePackagesSensor,
     _device_info,
     _order_slug,
     _parse_date,
@@ -130,6 +132,66 @@ class TestSensors(unittest.TestCase):
 
         calories_sensor = DietlyOrderSensor(entry, coordinator, "10", "calories", "parent_1")
         self.assertIsNone(calories_sensor.entity_category)
+
+    def test_surprise_package_sensor_attributes(self) -> None:
+        """Verify that surprise package attributes are exposed on order and meal sensors."""
+        entry = MagicMock()
+        entry.data = {}
+        entry.unique_id = "test_acc"
+        entry.entry_id = "entry_1"
+        coordinator = MagicMock()
+        coordinator.last_update_success = True
+        coordinator.data = {
+            "orders": {
+                "77": {
+                    "order_id": "77",
+                    "company_name": "Surprise Catering",
+                    "diet_name": "Paczka niespodzianka",
+                    "order_type": "SURPRISE_PACKAGE",
+                    "is_surprise": True,
+                    "date_to": "2026-11-21",
+                    "delivery_date": "2026-11-21",
+                    "meals": [
+                        {
+                            "name": "Zawartość niespodzianka (ratowanie jedzenia)",
+                            "slot": "Paczka niespodzianka",
+                        }
+                    ],
+                }
+            }
+        }
+        order_sensor = DietlyOrderSensor(entry, coordinator, "77", "order_status", "parent_1")
+        self.assertTrue(order_sensor.extra_state_attributes["is_surprise"])
+        self.assertEqual(order_sensor.extra_state_attributes["order_type"], "SURPRISE_PACKAGE")
+
+        meal_sensor = DietlyMealSensor(entry, coordinator, "77", 0, "parent_1")
+        self.assertTrue(meal_sensor.extra_state_attributes["is_surprise"])
+        self.assertEqual(meal_sensor.name, "Paczka niespodzianka")
+        self.assertEqual(meal_sensor.native_value, "Zawartość niespodzianka (ratowanie jedzenia)")
+
+    def test_account_and_surprise_summary_sensors(self) -> None:
+        """Verify summary sensors count regular diets and surprise packages separately."""
+        entry = MagicMock()
+        entry.data = {}
+        entry.unique_id = "test_acc"
+        entry.entry_id = "entry_1"
+        coordinator = MagicMock()
+        coordinator.data = {
+            "orders": {
+                "1": {"order_id": "1", "is_surprise": False},
+                "2": {"order_id": "2", "is_surprise": True},
+                "3": {"order_id": "3", "is_surprise": True},
+            }
+        }
+        diet_sensor = DietlyAccountSensor(entry, coordinator)
+        self.assertEqual(diet_sensor.native_value, 1)
+        self.assertEqual(diet_sensor.suggested_object_id, "dietly_aktywne_diety")
+
+        surprise_sensor = DietlySurprisePackagesSensor(entry, coordinator)
+        self.assertEqual(surprise_sensor.native_value, 2)
+        self.assertEqual(surprise_sensor.suggested_object_id, "dietly_aktywne_paczki_niespodzianki")
+
+
 
 
 if __name__ == "__main__":
